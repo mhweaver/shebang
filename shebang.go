@@ -1,14 +1,23 @@
 package main
 
 import (
+	"bufio"
+	// "container/list"
 	"flag"
 	"fmt"
+	"log"
+	// "io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+type alias struct {
+	name    string
+	command string
+}
 
 func main() {
 	if len(os.Args) < 3 {
@@ -18,15 +27,11 @@ func main() {
 
 	// Set up flags
 	verbose := flag.Bool("d", false, "Display command being run")
-	removeShebang := flag.Bool("r", false, "Remove the #! line from the target file")
 	flag.Parse()
 
 	// Adjust the start index of the command argument in os.Args, if flags were set
 	var commandStart int = 1
 	if *verbose {
-		commandStart++
-	}
-	if *removeShebang {
 		commandStart++
 	}
 
@@ -36,15 +41,19 @@ func main() {
 	dir, filename := filepath.Split(target)
 	fullpath := dir + filename
 	targetName := removeExtension(fullpath)
+	targetExtension := filepath.Ext(fullpath)
+	var tempTargetName string
+
+	aliases := getAliases(dir)
+	command = aliasReplace(command, aliases)
 
 	// If #! needs removed from the target file, copy it to a temp file without the #!
-	if *removeShebang {
+	if strings.Contains(command, "!~") {
 		var err error
 		// Read the file
 		fileContents, err := ioutil.ReadFile(fullpath)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Unable to read target file")
-			os.Exit(1)
+			log.Fatal(err)
 		}
 
 		// If there's no #! to remove, don't bother.
@@ -54,12 +63,10 @@ func main() {
 			// io/ioutils has a nice TempFile fuctions, so we might as well use it
 			// (really, I'm just using it for the name, because I'm lazy...)
 			tempfile, err := ioutil.TempFile(dir, filename)
-			defer os.Remove(tempfile.Name())
-
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "Unable to create temp file")
-				os.Exit(1)
+				log.Fatal(err)
 			}
+			defer os.Remove(tempfile.Name())
 
 			// Read through the file until we reach the end if the first line
 			for i = 0; i < len(fileContents) && fileContents[i] != '\n'; i++ {
@@ -68,17 +75,12 @@ func main() {
 			// Write everything after the #! line to the new file (the first line should
 			// still be there, but empty. This is nice for debugging, since line numbers
 			// all matchup between the target file and the temp file)
-			err = ioutil.WriteFile(tempfile.Name()+".c", fileContents[i:], os.ModePerm)
-			defer os.Remove(tempfile.Name() + ".c")
+			tempTargetName = tempfile.Name() + targetExtension
+			err = ioutil.WriteFile(tempTargetName, fileContents[i:], os.ModePerm)
 			if err != nil {
-				fmt.Println(tempfile.Name() + ".c")
-				fmt.Fprintln(os.Stderr, "Unable to write to temp file")
-				os.Exit(1)
+				log.Fatal(err)
 			}
-
-			// Update the variables, so they get substituted correctly
-			target = tempfile.Name() + ".c"
-			dir, filename = filepath.Split(target)
+			defer os.Remove(tempTargetName)
 		}
 
 	}
@@ -92,7 +94,8 @@ func main() {
 		"!-", targetName,
 		"!>", filename,
 		"!<", dir,
-		"!.", fullpath)
+		"!.", fullpath,
+		"!~", tempTargetName)
 	// Do the replacement
 	command = replacer.Replace(command)
 
@@ -133,14 +136,88 @@ func parseArgs(argv []string) (command, target string) {
 }
 
 func printUsage() {
-	fmt.Println("Usage:\tshebang [-d] [-r] \"command\" target\n")
-	fmt.Println("Optional Parameters:")
-	fmt.Println("\t-d\tDisplay the final command getting run")
-	fmt.Println("\t-r\tRemove the #! line from the target file\n")
-	fmt.Println("You can use the following substitution meta-strings in command:")
-	fmt.Println("\t!@\ttarget")
-	fmt.Println("\t!-\ttarget with the file extension removed")
-	fmt.Println("\t!<\ttarget's filename")
-	fmt.Println("\t!>\ttarget's directory")
-	fmt.Println("\t!.\ttarget's path")
+	usage := [...]string{
+		//																				 |
+		"Usage:\tshebang [-r] \"command\" target\n",
+		"Optional Parameters",
+		"\t-d\tDisplay the final command getting run",
+		"\t\tNote: this may (and probably will) contain extra quotes. Ignore those.",
+		"You can use the following substitution meta-strings in command:",
+		"\t!(aname)\tcommand defined by aname in a .shebang_alias file",
+		"\t!@\ttarget",
+		"\t!-\ttarget with the file extension removed",
+		"\t!<\ttarget's filename",
+		"\t!>\ttarget's directory",
+		"\t!.\ttarget's path",
+		"\t!~\ttemporary copy of target, with #! line removed",
+
+		"Aliases",
+		"\tShebang aliases, defined in .shebang_alias files, map names to commands.",
+		"\tAlias commands may contain substitution meta-strings, including other ",
+		"\tpreviously defined aliases. Recursive aliases are not supported.",
+		"\tAliases can be defined in the following locations, and will be parsed in",
+		"\tthis order:",
+		"\t\t<target's directory>/.shebang_alias",
+		"\t\t./.shebang_alias",
+		"\t\t~/.shebang_alias",
+		"\t\t/etc/.shebang_alias",
+		"\t.shebang_alias files contain 1 alias per line, in the following format:",
+		"\t\talias_name = command",
+		"\tFor example, to run/compile a C program you might use the following alias:",
+		"\t\tc = gcc -o !- !~ && !-; rm !-",
+		"\tThis creates a temporary copy of the target without the #! line (!~), ",
+		"\tcompiles it, runs the output file (!-), then removes the output file.",
+		"\tTo use this, the #! in the .c file would look something like this:",
+		"\t#!/usr/bin/shebang \"!(c)\"",
+	}
+	for _, line := range usage {
+		fmt.Println(line)
+	}
+}
+
+func getAliases(targetDir string) []alias {
+	aliasLocations := [...]string{targetDir, "./", "~/", "/etc/"}
+	aliasFilename := ".shebang_alias"
+	// aliases := list.New()
+	aliases := []alias{}
+
+	for i := 0; i < len(aliasLocations); i++ {
+		filename := aliasLocations[i] + aliasFilename
+
+		// Open the file
+		f, err := os.Open(filename)
+		if err != nil {
+			// Ignore the error and move on to the next file location
+		} else {
+			defer f.Close()
+		}
+
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			al := parseAlias(scanner.Text())
+			// aliases.PushBack(al)
+			aliases = append(aliases, al)
+		}
+	}
+
+	return aliases
+}
+
+// name = command
+func parseAlias(raw string) alias {
+	tokens := strings.SplitN(raw, "=", 2) // Split into "name " and " command"
+	for index, _ := range tokens {
+		tokens[index] = strings.Trim(tokens[index], " \t")
+	}
+	return alias{name: tokens[0], command: tokens[1]}
+}
+
+func aliasReplace(command string, aliases []alias) string {
+	cmd := command
+	for _, al := range aliases {
+		name := al.name
+		command := al.command
+		cmd = strings.Replace(cmd, "!("+name+")", command, -1)
+	}
+	return cmd
 }

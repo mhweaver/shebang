@@ -1,5 +1,4 @@
-#!/Users/mhweaver/Documents/workspace/shebang/go-version/shebang -r "gcc -o !- !@ && !-; rm !-"
-
+#!/usr/bin/env shebang "!(c)"
 
 #include <stdio.h>
 
