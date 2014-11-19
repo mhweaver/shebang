@@ -2,12 +2,10 @@ package main
 
 import (
 	"bufio"
-	// "container/list"
 	"flag"
 	"fmt"
-	"log"
-	// "io"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
