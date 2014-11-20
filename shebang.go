@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 type alias struct {
@@ -39,7 +41,6 @@ func main() {
 	dir, filename := filepath.Split(target)
 	fullpath := dir + filename
 	targetName := removeExtension(fullpath)
-	targetExtension := filepath.Ext(fullpath)
 	var tempTargetName string
 
 	aliases := getAliases(dir)
@@ -58,13 +59,13 @@ func main() {
 		if len(fileContents) >= 2 && string(fileContents[:2]) == "#!" {
 			var i int
 
-			// io/ioutils has a nice TempFile fuctions, so we might as well use it
-			// (really, I'm just using it for the name, because I'm lazy...)
-			tempfile, err := ioutil.TempFile(dir, filename)
+			tempTargetName = fifoName(fullpath)
+			err := syscall.Mkfifo(tempTargetName, uint32(os.ModeNamedPipe))
 			if err != nil {
+				log.Println("Unable to create named pipe (fifo)")
 				log.Fatal(err)
 			}
-			defer os.Remove(tempfile.Name())
+			defer os.Remove(tempTargetName)
 
 			// Read through the file until we reach the end if the first line
 			for i = 0; i < len(fileContents) && fileContents[i] != '\n'; i++ {
@@ -73,7 +74,7 @@ func main() {
 			// Write everything after the #! line to the new file (the first line should
 			// still be there, but empty. This is nice for debugging, since line numbers
 			// all matchup between the target file and the temp file)
-			tempTargetName = tempfile.Name() + targetExtension
+			// tempTargetName = tempfile.Name() + targetExtension
 			err = ioutil.WriteFile(tempTargetName, fileContents[i:], os.ModePerm)
 			if err != nil {
 				log.Fatal(err)
@@ -218,4 +219,17 @@ func aliasReplace(command string, aliases []alias) string {
 		cmd = strings.Replace(cmd, "!("+name+")", command, -1)
 	}
 	return cmd
+}
+
+func fifoName(basename string) string {
+	r := rand.New(rand.NewSource(31415926535)) // Doesn't need to be particularly random, so a const seed works
+	prefix, _ := filepath.Split(basename)
+	ext := filepath.Ext(basename)
+
+	for {
+		var name string = prefix + string(r.Int()) + ext
+		if _, err := os.Stat(name); os.IsNotExist(err) {
+			return name
+		}
+	}
 }
