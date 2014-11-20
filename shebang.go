@@ -193,6 +193,10 @@ func getAliases(targetDir string) []alias {
 
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
+			// Is this line commented out? Skip it.
+			if byte(scanner.Text()[0]) == '#' {
+				continue
+			}
 			al := parseAlias(scanner.Text())
 			// aliases.PushBack(al)
 			aliases = append(aliases, al)
