@@ -1,4 +1,4 @@
-#!/usr/bin/env shebang !(c)
+#!/usr/bin/env shebang "!(c)"
 
 #include <stdio.h>
 

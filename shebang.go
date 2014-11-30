@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -41,6 +42,7 @@ func main() {
 	dir, filename := filepath.Split(target)
 	fullpath := dir + filename
 	targetName := removeExtension(fullpath)
+	targetExtension := filepath.Ext(fullpath)
 	var tempTargetName string
 
 	aliases := getAliases(dir)
@@ -59,8 +61,9 @@ func main() {
 		if len(fileContents) >= 2 && string(fileContents[:2]) == "#!" {
 			var i int
 
-			tempTargetName = fifoName(fullpath)
-			err := syscall.Mkfifo(tempTargetName, uint32(os.ModeNamedPipe))
+			tempTargetName = fifoName(targetName, targetExtension)
+			err := syscall.Mkfifo(tempTargetName, uint32(os.ModePerm|os.ModeNamedPipe))
+			// err := syscall.Mkfifo(tempTargetName, uint32(os.ModePerm))
 			if err != nil {
 				log.Println("Unable to create named pipe (fifo)")
 				log.Fatal(err)
@@ -75,15 +78,11 @@ func main() {
 			// still be there, but empty. This is nice for debugging, since line numbers
 			// all matchup between the target file and the temp file)
 			// tempTargetName = tempfile.Name() + targetExtension
-			err = ioutil.WriteFile(tempTargetName, fileContents[i:], os.ModePerm)
-			if err != nil {
-				log.Fatal(err)
-			}
+			go writeToFifo(tempTargetName, fileContents[i:])
 			defer os.Remove(tempTargetName)
 		}
 
 	}
-
 	// targetName := removeExtension(filename)
 	fullpath = dir + filename
 
@@ -98,12 +97,12 @@ func main() {
 	// Do the replacement
 	command = replacer.Replace(command)
 
-	// The command needs wrapped in quotes for sh -c to use properly
-	command = "\"" + command + "\""
-
 	if *verbose {
 		fmt.Println(command)
 	}
+
+	// The command needs wrapped in quotes for sh -c to use properly
+	command = "\"" + command + "\""
 
 	// Run sh -c command, using stdio
 	cmd := exec.Command("sh", "-c", command)
@@ -140,7 +139,6 @@ func printUsage() {
 		"Usage:\tshebang [-r] \"command\" target\n",
 		"Optional Parameters",
 		"\t-d\tDisplay the final command getting run",
-		"\t\tNote: this may (and probably will) contain extra quotes. Ignore those.",
 		"You can use the following substitution meta-strings in command:",
 		"\t!(aname)\tcommand defined by aname in a .shebang_alias file",
 		"\t!@\ttarget",
@@ -225,15 +223,20 @@ func aliasReplace(command string, aliases []alias) string {
 	return cmd
 }
 
-func fifoName(basename string) string {
+func fifoName(basename string, extension string) string {
 	r := rand.New(rand.NewSource(31415926535)) // Doesn't need to be particularly random, so a const seed works
-	prefix, _ := filepath.Split(basename)
-	ext := filepath.Ext(basename)
-
 	for {
-		var name string = prefix + string(r.Int()) + ext
+		nameArr := []string{basename, strconv.FormatInt(int64(r.Int()), 10), extension}
+		var name string = strings.Join(nameArr, "")
 		if _, err := os.Stat(name); os.IsNotExist(err) {
 			return name
 		}
+	}
+}
+
+func writeToFifo(filename string, data []byte) {
+	err := ioutil.WriteFile(filename, data, os.ModePerm|os.ModeNamedPipe)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
