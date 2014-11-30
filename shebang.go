@@ -153,7 +153,7 @@ func printUsage() {
 		"Aliases",
 		"\tShebang aliases, defined in .shebang_alias files, map names to commands.",
 		"\tAlias commands may contain substitution meta-strings, including other ",
-		"\tpreviously defined aliases. Recursive aliases are not supported.",
+		"\tsubsequently defined aliases. Recursive aliases are not supported.",
 		"\tAliases can be defined in the following locations, and will be parsed in",
 		"\tthis order:",
 		"\t\t<target's directory>/.shebang_alias",
