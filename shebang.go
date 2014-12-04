@@ -43,13 +43,13 @@ func main() {
 	fullpath := dir + filename
 	targetName := removeExtension(fullpath)
 	targetExtension := filepath.Ext(fullpath)
-	var tempTargetName string
+	var tempFifoName, tempFileName string
 
 	aliases := getAliases(dir)
 	command = aliasReplace(command, aliases)
 
 	// If #! needs removed from the target file, copy it to a temp file without the #!
-	if strings.Contains(command, "!~") {
+	if strings.Contains(command, "!~") || strings.Contains(command, "!+") {
 		var err error
 		// Read the file
 		fileContents, err := ioutil.ReadFile(fullpath)
@@ -57,29 +57,41 @@ func main() {
 			log.Fatal(err)
 		}
 
+		var i int = 0
 		// If there's no #! to remove, don't bother.
 		if len(fileContents) >= 2 && string(fileContents[:2]) == "#!" {
-			var i int
+			// Read through the file until we reach the end if the first line
+			for i = 0; i < len(fileContents) && fileContents[i] != '\n'; i++ {
+			}
+		}
 
-			tempTargetName = fifoName(targetName, targetExtension)
-			err := syscall.Mkfifo(tempTargetName, uint32(os.ModePerm|os.ModeNamedPipe))
-			// err := syscall.Mkfifo(tempTargetName, uint32(os.ModePerm))
+		// fifo
+		if strings.Contains(command, "!~") {
+			tempFifoName = getTempFilename(targetName, targetExtension)
+			err = syscall.Mkfifo(tempFifoName, uint32(os.ModePerm|os.ModeNamedPipe))
+			// err := syscall.Mkfifo(tempFifoName, uint32(os.ModePerm))
 			if err != nil {
 				log.Println("Unable to create named pipe (fifo)")
 				log.Fatal(err)
 			}
-			defer os.Remove(tempTargetName)
-
-			// Read through the file until we reach the end if the first line
-			for i = 0; i < len(fileContents) && fileContents[i] != '\n'; i++ {
-			}
+			defer os.Remove(tempFifoName)
 
 			// Write everything after the #! line to the new file (the first line should
 			// still be there, but empty. This is nice for debugging, since line numbers
 			// all matchup between the target file and the temp file)
-			// tempTargetName = tempfile.Name() + targetExtension
-			go writeToFifo(tempTargetName, fileContents[i:])
-			defer os.Remove(tempTargetName)
+			// tempFifoName = tempfile.Name() + targetExtension
+			go writeToFifo(tempFifoName, fileContents[i:])
+			defer os.Remove(tempFifoName)
+		}
+
+		// temp file
+		if strings.Contains(command, "!+") {
+			tempFileName = getTempFilename(targetName, targetExtension)
+
+			// Don't write the file in a new thread, since we want the whole file
+			// to be there before compilers/whatever try to get at it
+			writeToFile(tempFileName, fileContents[i:])
+			defer os.Remove(tempFileName)
 		}
 
 	}
@@ -93,7 +105,8 @@ func main() {
 		"!>", filename,
 		"!<", dir,
 		"!.", fullpath,
-		"!~", tempTargetName)
+		"!~", tempFifoName,
+		"!+", tempFileName)
 	// Do the replacement
 	command = replacer.Replace(command)
 
@@ -146,7 +159,10 @@ func printUsage() {
 		"\t!<\ttarget's filename",
 		"\t!>\ttarget's directory",
 		"\t!.\ttarget's path",
-		"\t!~\ttemporary copy of target, with #! line removed",
+		"\t!~\ttemporary copy of target, with #! line removed. The copy is a fifo",
+		"\t!+\tsame as !~, except using a temporary file, instead of a fifo, for",
+		"\t\tprograms that don't play well with fifos (here's looking at you, ",
+		"\t\tScheme...)",
 
 		"Aliases",
 		"\tShebang aliases, defined in .shebang_alias files, map names to commands.",
@@ -223,7 +239,7 @@ func aliasReplace(command string, aliases []alias) string {
 	return cmd
 }
 
-func fifoName(basename string, extension string) string {
+func getTempFilename(basename string, extension string) string {
 	r := rand.New(rand.NewSource(31415926535)) // Doesn't need to be particularly random, so a const seed works
 	for {
 		nameArr := []string{basename, strconv.FormatInt(int64(r.Int()), 10), extension}
@@ -236,6 +252,13 @@ func fifoName(basename string, extension string) string {
 
 func writeToFifo(filename string, data []byte) {
 	err := ioutil.WriteFile(filename, data, os.ModePerm|os.ModeNamedPipe)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func writeToFile(filename string, data []byte) {
+	err := ioutil.WriteFile(filename, data, os.ModePerm)
 	if err != nil {
 		log.Fatal(err)
 	}
