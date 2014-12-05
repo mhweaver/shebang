@@ -1,17 +1,7 @@
 #!/usr/bin/env shebang -d "!(scheme)"
-;#! /Users/mhweaver/Documents/workspace/shebang/go-version/shebang -d "scheme --load !@ < /dev/null"
-; scheme --load replace-test.scm < /dev/null
-; Author: Matt Weaver
-; Assignment: LA1-1
-; Class: CS 354
-; Due September 23, 2014
-; File contents: test suite for the replace function (LA1.scm)
-
-; General comments: For my tests, I used a few function calls with side effects.
-; 	My main replace function does not use any, so I feel like I am following the
-; 	spirit of the assignment. I just got tired of repeating the same display/
-; 	pretty-print calls over and over, so I made a new function, to make life
-; 	easier and prettier.
+; Note: There is a bug in most versions of mit-scheme that prevents this example from
+; working (it couldn't handle the "--load ./filename.scm" parameter). 
+; This bug was recently fixed, but I haven't had a chance to actually test it.
 
 (load "replace.scm")
 

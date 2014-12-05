@@ -1,13 +1,4 @@
-; scheme --load replace.scm < /dev/null
-; Author: Matt Weaver
-; Assignment: LA1-1
-; Class: CS 354
-; Due September 23, 2014
-; File contents: replace function
-
-; General comments: I was very comment-happy in this assignment. Since this is 
-; 	the first time I have ever used Scheme, the comments helped greatly in 
-; 	figuring out what each part of the program does, even when seemingly obvious
+; scheme --load replace.scm
 
 ; replace - Replace every instance of an item in a list/tree with another item
 ; usage: (replace seq search-for replace-with)
